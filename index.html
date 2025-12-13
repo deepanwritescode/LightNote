@@ -799,11 +799,12 @@
 
       document.body.appendChild(contextMenu);
       
-      // Add click listener to close menu when clicking outside
+      // Add click listener to close menu when clicking outside - with a slight delay
+      // This prevents the touchend that triggered the menu from immediately closing it
       setTimeout(() => {
         document.addEventListener('click', closeContextMenuOnClickOutside);
         document.addEventListener('touchend', closeContextMenuOnClickOutside);
-      }, 0);
+      }, 100);
     }
 
     function closeContextMenuOnClickOutside(e) {
@@ -1299,7 +1300,16 @@
       }, { passive: false });
 
       canvas.addEventListener('touchmove', (e) => {
-        clearTimeout(longPressLinkTimer);
+        // Only cancel link timer if we actually moved
+        const touch = e.touches[0];
+        if (touch && touchStartPos) {
+          const dx = touch.clientX - touchStartPos.x;
+          const dy = touch.clientY - touchStartPos.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist > 10) {
+            clearTimeout(longPressLinkTimer);
+          }
+        }
         
         if (e.touches.length === 1 && (isLongPress || isDragging)) {
           e.preventDefault();
