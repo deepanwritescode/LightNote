@@ -384,6 +384,43 @@
     .drag-hint.show {
       display: block;
     }
+
+    .mobile-action-buttons {
+      display: none;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .mobile-action-buttons.show {
+      display: flex;
+    }
+
+    .mobile-btn {
+      flex: 1;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      color: white;
+    }
+
+    .mobile-btn-link {
+      background: #7c3aed;
+    }
+
+    .mobile-btn-link:active {
+      background: #6d28d9;
+    }
+
+    .mobile-btn-delete {
+      background: #dc2626;
+    }
+
+    .mobile-btn-delete:active {
+      background: #b91c1c;
+    }
   </style>
 </head>
 <body>
@@ -700,7 +737,7 @@
       }
     }
 
-    function showNoteEditor(note, onSave, mode = 'edit', scrollToText = null) {
+    function showNoteEditor(note, onSave, mode = 'edit', scrollToText = null, isMobileEditor = false) {
       removeNoteEditor();
       removeLinksPopup();
       
@@ -714,6 +751,13 @@
         displayContent = renderLinkedText(note.content, noteLinks, note);
       }
       
+      const mobileActionsHTML = isMobileEditor && mode === 'edit' ? `
+        <div class="mobile-action-buttons show">
+          <button class="mobile-btn mobile-btn-link" id="editorLinkBtn">Add Link</button>
+          <button class="mobile-btn mobile-btn-delete" id="editorDeleteBtn">Delete</button>
+        </div>
+      ` : '';
+
       const html = `
         <div class="note-editor-header">
           <input type="text" class="note-editor-title" placeholder="Title" value="${note.title}">
@@ -726,6 +770,7 @@
           <button class="toolbar-btn" data-format="italic"><i>I</i></button>
           <button class="toolbar-btn" data-format="underline"><u>U</u></button>
         </div>
+        ${mobileActionsHTML}
         <div class="note-editor-footer">
           <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
           <button class="btn btn-primary" id="saveBtn">${mode === 'select' ? 'Confirm' : 'Save'}</button>
@@ -773,6 +818,29 @@
           contentArea.focus();
         };
       });
+
+      // Mobile action buttons
+      if (isMobileEditor && mode === 'edit') {
+        const editorLinkBtn = noteEditor.querySelector('#editorLinkBtn');
+        const editorDeleteBtn = noteEditor.querySelector('#editorDeleteBtn');
+
+        if (editorLinkBtn) {
+          editorLinkBtn.onclick = () => {
+            note.title = titleInput.value;
+            note.content = contentArea.innerText;
+            removeNoteEditor();
+            startLinkCreation(note);
+          };
+        }
+
+        if (editorDeleteBtn) {
+          editorDeleteBtn.onclick = () => {
+            removeNoteEditor();
+            deleteNote(note);
+            scheduleSave();
+          };
+        }
+      }
 
       if (mode === 'select') {
         contentArea.contentEditable = 'false';
@@ -1157,11 +1225,14 @@
             const timeSinceLastTap = currentTime - lastTapTime;
             
             if (lastTapNote === touchStartNote && timeSinceLastTap < DOUBLE_TAP_DELAY) {
-              // DOUBLE TAP - Open context menu
+              // DOUBLE TAP - Open note editor with mobile buttons
               lastTapNote = null;
               lastTapTime = 0;
               removeContextMenu();
-              showContextMenu(touchStartPos.x, touchStartPos.y, touchStartNote);
+              removeLinksPopup();
+              showNoteEditor(touchStartNote, (savedNote) => {
+                scheduleSave();
+              }, 'edit', null, true);
             } else {
               // SINGLE TAP - Open note editor
               lastTapNote = touchStartNote;
@@ -1170,7 +1241,7 @@
               removeLinksPopup();
               showNoteEditor(touchStartNote, (savedNote) => {
                 scheduleSave();
-              });
+              }, 'edit', null, true);
             }
           }
         } else if (!hasDragged && e.touches.length === 0) {
@@ -1182,10 +1253,10 @@
             const timeSinceLastTap = currentTime - lastTapTime;
             
             if (lastTapNote === null && timeSinceLastTap < DOUBLE_TAP_DELAY) {
-              // DOUBLE TAP on empty - context menu for new note
+              // DOUBLE TAP on empty - create new note
               lastTapTime = 0;
-              removeContextMenu();
-              showContextMenu(touchStartPos.x, touchStartPos.y, null);
+              const world = screenToWorld(touchStartPos.x, touchStartPos.y);
+              createNote(world.x, world.y);
             } else {
               lastTapTime = currentTime;
               lastTapNote = null;
