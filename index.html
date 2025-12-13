@@ -1242,7 +1242,7 @@
           if (touchStartNote && !linkMode) {
             isLongPress = false;
             
-            // Start long-press timer
+            // Start long-press timer for note dragging
             longPressTimer = setTimeout(() => {
               isLongPress = true;
               touchStartNote.isDragging = true;
@@ -1258,6 +1258,19 @@
               setTimeout(() => {
                 hint.classList.remove('show');
               }, 1500);
+              
+              canvas.style.cursor = 'grabbing';
+            }, LONG_PRESS_DURATION);
+          } else if (!touchStartNote && !touchStartLink) {
+            // Long press on empty canvas to drag
+            longPressTimer = setTimeout(() => {
+              isLongPress = true;
+              isDragging = true;
+              dragStart = { x: touch.clientX, y: touch.clientY };
+              
+              if (navigator.vibrate) {
+                navigator.vibrate(10);
+              }
               
               canvas.style.cursor = 'grabbing';
             }, LONG_PRESS_DURATION);
@@ -1304,7 +1317,7 @@
           const touchDuration = currentTime - touchStartTime;
           
           if (touchStartNote.isDragging) {
-            // End dragging
+            // End dragging note
             touchStartNote.isDragging = false;
             canvas.style.cursor = 'grab';
             hasDragged = false;
@@ -1344,7 +1357,10 @@
           const currentTime = Date.now();
           const touchDuration = currentTime - touchStartTime;
           
-          if (touchDuration < LONG_PRESS_DURATION && !isLongPress) {
+          // Close context menu if open
+          if (contextMenu) {
+            removeContextMenu();
+          } else if (touchDuration < LONG_PRESS_DURATION && !isLongPress) {
             const timeSinceLastTap = currentTime - lastTapTime;
             
             if (lastTapNote === null && timeSinceLastTap < DOUBLE_TAP_DELAY) {
@@ -1359,7 +1375,12 @@
           }
         }
         
-        isDragging = false;
+        // End canvas dragging
+        if (isDragging) {
+          isDragging = false;
+          canvas.style.cursor = 'grab';
+        }
+        
         isLongPress = false;
         hasDragged = false;
         touchStartNote = null;
