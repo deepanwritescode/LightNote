@@ -758,7 +758,8 @@
         const deleteLinkItem = document.createElement('div');
         deleteLinkItem.className = 'context-menu-item danger';
         deleteLinkItem.textContent = 'Delete Link';
-        deleteLinkItem.onclick = () => {
+        deleteLinkItem.onclick = (e) => {
+          e.stopPropagation();
           removeContextMenu();
           deleteLink(link);
         };
@@ -767,7 +768,8 @@
         const addLinkItem = document.createElement('div');
         addLinkItem.className = 'context-menu-item';
         addLinkItem.textContent = 'Add Link';
-        addLinkItem.onclick = () => {
+        addLinkItem.onclick = (e) => {
+          e.stopPropagation();
           removeContextMenu();
           startLinkCreation(note);
         };
@@ -776,7 +778,8 @@
         const deleteItem = document.createElement('div');
         deleteItem.className = 'context-menu-item danger';
         deleteItem.textContent = 'Delete Note';
-        deleteItem.onclick = () => {
+        deleteItem.onclick = (e) => {
+          e.stopPropagation();
           removeContextMenu();
           deleteNote(note);
         };
@@ -785,7 +788,8 @@
         const newNoteItem = document.createElement('div');
         newNoteItem.className = 'context-menu-item';
         newNoteItem.textContent = 'New Note';
-        newNoteItem.onclick = () => {
+        newNoteItem.onclick = (e) => {
+          e.stopPropagation();
           removeContextMenu();
           const world = screenToWorld(x, y);
           createNote(world.x, world.y);
@@ -794,12 +798,28 @@
       }
 
       document.body.appendChild(contextMenu);
+      
+      // Add click listener to close menu when clicking outside
+      setTimeout(() => {
+        document.addEventListener('click', closeContextMenuOnClickOutside);
+        document.addEventListener('touchend', closeContextMenuOnClickOutside);
+      }, 0);
+    }
+
+    function closeContextMenuOnClickOutside(e) {
+      if (contextMenu && !contextMenu.contains(e.target)) {
+        removeContextMenu();
+        document.removeEventListener('click', closeContextMenuOnClickOutside);
+        document.removeEventListener('touchend', closeContextMenuOnClickOutside);
+      }
     }
 
     function removeContextMenu() {
       if (contextMenu) {
         contextMenu.remove();
         contextMenu = null;
+        document.removeEventListener('click', closeContextMenuOnClickOutside);
+        document.removeEventListener('touchend', closeContextMenuOnClickOutside);
       }
     }
 
@@ -1310,14 +1330,6 @@
       canvas.addEventListener('touchend', (e) => {
         clearTimeout(longPressTimer);
         clearTimeout(longPressLinkTimer);
-        
-        // Don't process canvas touches if context menu is open - let it handle its own clicks
-        if (contextMenu) {
-          touchStartLink = null;
-          touchStartNote = null;
-          return;
-        }
-        
         touchStartLink = null;
         
         if (touchStartNote) {
