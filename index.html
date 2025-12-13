@@ -746,9 +746,11 @@
       
       const noteLinks = getLinksForNote(note);
       let displayContent = note.content;
+      let displayTitle = note.title;
       
       if (mode === 'edit') {
         displayContent = renderLinkedText(note.content, noteLinks, note);
+        displayTitle = renderLinkedText(note.title, noteLinks, note);
       }
       
       const mobileActionsHTML = isMobileEditor && mode === 'edit' ? `
@@ -760,7 +762,8 @@
 
       const html = `
         <div class="note-editor-header">
-          <input type="text" class="note-editor-title" placeholder="Title" value="${note.title}">
+          <div class="note-editor-title-display">${displayTitle}</div>
+          <input type="text" class="note-editor-title" placeholder="Title" value="${note.title}" style="display: none;">
         </div>
         <div class="note-editor-body">
           <div class="note-editor-content" contenteditable="true">${displayContent}</div>
@@ -780,20 +783,26 @@
       noteEditor.innerHTML = html;
       document.body.appendChild(noteEditor);
 
+      const titleDisplay = noteEditor.querySelector('.note-editor-title-display');
       const titleInput = noteEditor.querySelector('.note-editor-title');
       const contentArea = noteEditor.querySelector('.note-editor-content');
       const saveBtn = noteEditor.querySelector('#saveBtn');
       const cancelBtn = noteEditor.querySelector('#cancelBtn');
 
       if (mode === 'edit') {
-        contentArea.addEventListener('contextmenu', (e) => {
+        // Handle linked text clicks in both title and content
+        const handleLinkedTextClick = (e) => {
           const target = e.target.closest('.linked-text');
           if (target) {
             e.preventDefault();
             const linkText = target.textContent;
             showLinksPopup(e.clientX, e.clientY, note, linkText);
           }
-        });
+        };
+        
+        contentArea.addEventListener('contextmenu', handleLinkedTextClick);
+        titleDisplay.addEventListener('contextmenu', handleLinkedTextClick);
+        titleDisplay.addEventListener('click', handleLinkedTextClick);
       }
 
       if (scrollToText && mode === 'edit') {
@@ -864,6 +873,19 @@
           onSave(note);
           removeNoteEditor();
         };
+
+        // Show/hide title input on focus
+        titleInput.addEventListener('focus', () => {
+          titleDisplay.style.display = 'none';
+          titleInput.style.display = 'block';
+          titleInput.focus();
+        });
+
+        titleInput.addEventListener('blur', () => {
+          titleDisplay.style.display = 'block';
+          titleInput.style.display = 'none';
+          titleDisplay.innerHTML = renderLinkedText(titleInput.value, getLinksForNote(note), note);
+        });
       }
 
       cancelBtn.onclick = () => {
