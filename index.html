@@ -762,7 +762,6 @@
         <div class="note-editor-header">
           <input type="text" class="note-editor-title" placeholder="Title" value="${note.title}">
         </div>
-</parameter>
         <div class="note-editor-body">
           <div class="note-editor-content" contenteditable="true">${displayContent}</div>
         </div>
@@ -796,7 +795,6 @@
           }
         });
       }
-</parameter>
 
       if (scrollToText && mode === 'edit') {
         setTimeout(() => {
@@ -867,7 +865,6 @@
           removeNoteEditor();
         };
       }
-</parameter>
 
       cancelBtn.onclick = () => {
         removeNoteEditor();
