@@ -19,6 +19,9 @@
       width: 100%;
       height: 100%;
       touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
     }
 
     #canvas {
@@ -27,6 +30,12 @@
       height: 100vh;
       cursor: grab;
       background: #1a1a1a;
+      position: fixed;
+      top: 0;
+      left: 0;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
     }
 
     #canvas:active {
@@ -110,6 +119,8 @@
       white-space: pre-wrap;
       background: transparent;
       color: #e0e0e0;
+      -webkit-user-select: text;
+      user-select: text;
     }
 
     .note-editor-content::placeholder {
@@ -353,6 +364,26 @@
       background: #3a3a3a;
       color: #e0e0e0;
     }
+
+    .drag-hint {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #2a2a2a;
+      padding: 12px 24px;
+      border-radius: 8px;
+      border: 1px solid #3a3a3a;
+      color: #e0e0e0;
+      font-size: 14px;
+      z-index: 500;
+      display: none;
+      pointer-events: none;
+    }
+
+    .drag-hint.show {
+      display: block;
+    }
   </style>
 </head>
 <body>
@@ -376,6 +407,10 @@
   <canvas id="canvas"></canvas>
   <div id="linkModeOverlay" class="link-mode-overlay">
     <div class="link-mode-message">Select a note to link to</div>
+  </div>
+
+  <div id="dragHint" class="drag-hint">
+    Hold to drag
   </div>
 
   <!-- Firebase Scripts -->
@@ -402,10 +437,21 @@
     let currentUser = null;
 
     const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: false });
     
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    // Fix for mobile DPI
+    function resizeCanvasForDevice() {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      
+      ctx.scale(dpr, dpr);
+    }
+    
+    resizeCanvasForDevice();
+    window.addEventListener('resize', resizeCanvasForDevice);
 
     let notes = [];
     let links = [];
@@ -420,10 +466,17 @@
     let linksPopup = null;
     let hasDragged = false;
     let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    let longPressTimer = null;
-    let longPressTarget = null;
-    let lastTap = 0;
+    
+    // Touch variables
+    let touchStartTime = 0;
     let touchStartPos = { x: 0, y: 0 };
+    let touchStartNote = null;
+    let longPressTimer = null;
+    let isLongPress = false;
+    let lastTapTime = 0;
+    let lastTapNote = null;
+    const LONG_PRESS_DURATION = 500;
+    const DOUBLE_TAP_DELAY = 300;
 
     class Note {
       constructor(x, y, title = '', content = '') {
@@ -450,15 +503,15 @@
 
     function screenToWorld(sx, sy) {
       return {
-        x: (sx - canvas.width / 2) / camera.zoom - camera.x,
-        y: (sy - canvas.height / 2) / camera.zoom - camera.y
+        x: (sx - canvas.clientWidth / 2) / camera.zoom - camera.x,
+        y: (sy - canvas.clientHeight / 2) / camera.zoom - camera.y
       };
     }
 
     function worldToScreen(wx, wy) {
       return {
-        x: (wx + camera.x) * camera.zoom + canvas.width / 2,
-        y: (wy + camera.y) * camera.zoom + canvas.height / 2
+        x: (wx + camera.x) * camera.zoom + canvas.clientWidth / 2,
+        y: (wy + camera.y) * camera.zoom + canvas.clientHeight / 2
       };
     }
 
@@ -468,7 +521,6 @@
       const damping = 0.85;
       const centerPull = 0.001;
 
-      // Repulsion between all nodes
       for (let i = 0; i < notes.length; i++) {
         if (notes[i].isDragging) continue;
         
@@ -488,12 +540,11 @@
         }
       }
 
-      // Attraction along links
       links.forEach(link => {
         const dx = link.to.x - link.from.x;
         const dy = link.to.y - link.from.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        const desiredDist = 200; // Increased desired distance between linked nodes
+        const desiredDist = 200;
         const force = (dist - desiredDist) * attraction;
         const fx = (dx / dist) * force;
         const fy = (dy / dist) * force;
@@ -508,7 +559,6 @@
         }
       });
 
-      // Center pull and update positions
       notes.forEach(note => {
         if (note.isDragging) {
           note.vx = 0;
@@ -526,17 +576,16 @@
     }
 
     function draw() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
 
-      // Draw grid dots
       const gridSize = 40;
       const dotRadius = 1.5;
       ctx.fillStyle = '#333333';
       
-      const startX = Math.floor(((-camera.x - canvas.width / 2 / camera.zoom) / gridSize)) * gridSize;
-      const startY = Math.floor(((-camera.y - canvas.height / 2 / camera.zoom) / gridSize)) * gridSize;
-      const endX = startX + canvas.width / camera.zoom + gridSize * 2;
-      const endY = startY + canvas.height / camera.zoom + gridSize * 2;
+      const startX = Math.floor(((-camera.x - canvas.clientWidth / 2 / camera.zoom) / gridSize)) * gridSize;
+      const startY = Math.floor(((-camera.y - canvas.clientHeight / 2 / camera.zoom) / gridSize)) * gridSize;
+      const endX = startX + canvas.clientWidth / camera.zoom + gridSize * 2;
+      const endY = startY + canvas.clientHeight / camera.zoom + gridSize * 2;
       
       for (let x = startX; x < endX; x += gridSize) {
         for (let y = startY; y < endY; y += gridSize) {
@@ -547,7 +596,6 @@
         }
       }
 
-      // Draw links
       ctx.strokeStyle = '#555';
       ctx.lineWidth = 2;
       links.forEach(link => {
@@ -559,11 +607,9 @@
         ctx.stroke();
       });
 
-      // Draw notes
       notes.forEach(note => {
         const pos = worldToScreen(note.x, note.y);
         
-        // Node circle
         ctx.fillStyle = '#a78bfa';
         ctx.strokeStyle = '#000';
         ctx.lineWidth = 2;
@@ -572,7 +618,6 @@
         ctx.fill();
         ctx.stroke();
 
-        // Title
         if (note.title) {
           ctx.fillStyle = '#e0e0e0';
           ctx.font = `${12 * camera.zoom}px Arial`;
@@ -606,7 +651,6 @@
       contextMenu = document.createElement('div');
       contextMenu.className = 'context-menu';
       
-      // On mobile, center the menu on screen instead of at tap position
       if (isMobile) {
         contextMenu.style.left = '50%';
         contextMenu.style.top = '50%';
@@ -663,12 +707,10 @@
       noteEditor = document.createElement('div');
       noteEditor.className = 'note-editor active';
       
-      // Get links for this note
       const noteLinks = getLinksForNote(note);
       let displayContent = note.content;
       
       if (mode === 'edit') {
-        // Render linked text as purple
         displayContent = renderLinkedText(note.content, noteLinks, note);
       }
       
@@ -698,7 +740,6 @@
       const saveBtn = noteEditor.querySelector('#saveBtn');
       const cancelBtn = noteEditor.querySelector('#cancelBtn');
 
-      // Handle right-clicks on linked text
       if (mode === 'edit') {
         contentArea.addEventListener('contextmenu', (e) => {
           const target = e.target.closest('.linked-text');
@@ -710,7 +751,6 @@
         });
       }
 
-      // Scroll to specific text if provided
       if (scrollToText && mode === 'edit') {
         setTimeout(() => {
           const linkedSpans = contentArea.querySelectorAll('.linked-text');
@@ -727,7 +767,6 @@
         }, 100);
       }
 
-      // Toolbar formatting
       noteEditor.querySelectorAll('[data-format]').forEach(btn => {
         btn.onclick = () => {
           document.execCommand(btn.dataset.format, false, null);
@@ -803,7 +842,6 @@
         }
       });
       
-      // Sort by position and replace from end to start
       replacements.sort((a, b) => b.start - a.start);
       replacements.forEach(r => {
         rendered = rendered.substring(0, r.start) + r.html + rendered.substring(r.end);
@@ -857,7 +895,6 @@
       }
     }
 
-    // Firebase Save/Load Functions
     async function saveToFirebase() {
       if (!currentUser) return;
       
@@ -877,8 +914,6 @@
           fromText: link.fromText,
           toText: link.toText
         }));
-        
-        console.log('Saving:', notesData.length, 'notes and', linksData.length, 'links');
         
         await db.collection('users').doc(currentUser.uid).collection('graphs').doc('mainGraph').set({
           notes: notesData,
@@ -901,8 +936,6 @@
         if (doc.exists) {
           const data = doc.data();
           
-          console.log('Loading:', data.notes.length, 'notes and', data.links.length, 'links');
-          
           notes = data.notes.map(noteData => {
             const note = new Note(noteData.x, noteData.y, noteData.title, noteData.content);
             note.id = noteData.id;
@@ -918,8 +951,6 @@
           }).filter(Boolean);
           
           console.log('✅ Loaded from Firebase!', notes.length, 'notes,', links.length, 'links');
-        } else {
-          console.log('ℹ️ No saved data found');
         }
       } catch (error) {
         console.error('❌ Error loading:', error);
@@ -975,91 +1006,236 @@
       }, 'select');
     }
 
-    // Event listeners
-    canvas.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      const note = getNoteAt(e.clientX, e.clientY);
-      showContextMenu(e.clientX, e.clientY, note);
-    });
-
-    canvas.addEventListener('click', (e) => {
-      removeContextMenu();
-      removeLinksPopup();
-      
-      if (linkMode && linkMode.step === 2) {
+    // DESKTOP EVENT LISTENERS
+    if (!isMobile) {
+      canvas.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
         const note = getNoteAt(e.clientX, e.clientY);
-        if (note && note.id !== linkMode.fromNote.id) {
-          finishLinkCreation(note);
+        showContextMenu(e.clientX, e.clientY, note);
+      });
+
+      canvas.addEventListener('click', (e) => {
+        removeContextMenu();
+        removeLinksPopup();
+        
+        if (linkMode && linkMode.step === 2) {
+          const note = getNoteAt(e.clientX, e.clientY);
+          if (note && note.id !== linkMode.fromNote.id) {
+            finishLinkCreation(note);
+          }
         }
-      }
-    });
+      });
 
-    canvas.addEventListener('mousedown', (e) => {
-      if (e.button === 0 && !linkMode) {
-        const note = getNoteAt(e.clientX, e.clientY);
-        if (note) {
-          draggingNote = note;
-          note.isDragging = true;
-          hasDragged = false;
-          canvas.style.cursor = 'grabbing';
-        } else {
-          isDragging = true;
+      canvas.addEventListener('mousedown', (e) => {
+        if (e.button === 0 && !linkMode) {
+          const note = getNoteAt(e.clientX, e.clientY);
+          if (note) {
+            draggingNote = note;
+            note.isDragging = true;
+            hasDragged = false;
+            canvas.style.cursor = 'grabbing';
+          } else {
+            isDragging = true;
+            dragStart = { x: e.clientX, y: e.clientY };
+          }
+        }
+      });
+
+      canvas.addEventListener('mousemove', (e) => {
+        if (draggingNote) {
+          hasDragged = true;
+          const world = screenToWorld(e.clientX, e.clientY);
+          draggingNote.x = world.x;
+          draggingNote.y = world.y;
+        } else if (isDragging) {
+          const dx = e.clientX - dragStart.x;
+          const dy = e.clientY - dragStart.y;
+          camera.x += dx / camera.zoom;
+          camera.y += dy / camera.zoom;
           dragStart = { x: e.clientX, y: e.clientY };
         }
-      }
-    });
+      });
 
-    canvas.addEventListener('mousemove', (e) => {
-      if (draggingNote) {
-        hasDragged = true;
-        const world = screenToWorld(e.clientX, e.clientY);
-        draggingNote.x = world.x;
-        draggingNote.y = world.y;
-      } else if (isDragging) {
-        const dx = e.clientX - dragStart.x;
-        const dy = e.clientY - dragStart.y;
-        camera.x += dx / camera.zoom;
-        camera.y += dy / camera.zoom;
-        dragStart = { x: e.clientX, y: e.clientY };
-      }
-    });
-
-    canvas.addEventListener('mouseup', (e) => {
-      if (draggingNote) {
-        draggingNote.isDragging = false;
-        const wasJustClick = !hasDragged;
-        const clickedNote = draggingNote;
-        draggingNote = null;
-        canvas.style.cursor = 'grab';
-        
-        // Only open editor if it was a click without dragging
-        if (wasJustClick && !linkMode) {
-          showNoteEditor(clickedNote, (savedNote) => {
-            // Note is already updated
-          });
+      canvas.addEventListener('mouseup', (e) => {
+        if (draggingNote) {
+          draggingNote.isDragging = false;
+          const wasJustClick = !hasDragged;
+          const clickedNote = draggingNote;
+          draggingNote = null;
+          canvas.style.cursor = 'grab';
+          
+          if (wasJustClick && !linkMode) {
+            showNoteEditor(clickedNote, (savedNote) => {});
+          }
         }
-      }
-      isDragging = false;
-    });
+        isDragging = false;
+      });
 
-    canvas.addEventListener('wheel', (e) => {
-      if (!isMobile) {
+      canvas.addEventListener('wheel', (e) => {
         e.preventDefault();
         const zoomSpeed = 0.1;
         const delta = e.deltaY > 0 ? -zoomSpeed : zoomSpeed;
         camera.zoom = Math.max(0.1, Math.min(3, camera.zoom + delta));
+      });
+    } else {
+      // MOBILE EVENT LISTENERS
+      canvas.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+          const touch = e.touches[0];
+          touchStartTime = Date.now();
+          touchStartPos = { x: touch.clientX, y: touch.clientY };
+          touchStartNote = getNoteAt(touch.clientX, touch.clientY);
+          
+          if (touchStartNote && !linkMode) {
+            isLongPress = false;
+            
+            // Start long-press timer
+            longPressTimer = setTimeout(() => {
+              isLongPress = true;
+              touchStartNote.isDragging = true;
+              
+              // Haptic feedback
+              if (navigator.vibrate) {
+                navigator.vibrate(10);
+              }
+              
+              // Show hint
+              const hint = document.getElementById('dragHint');
+              hint.classList.add('show');
+              setTimeout(() => {
+                hint.classList.remove('show');
+              }, 1500);
+              
+              canvas.style.cursor = 'grabbing';
+            }, LONG_PRESS_DURATION);
+          }
+        }
+      }, { passive: false });
+
+      canvas.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 1 && (isLongPress || isDragging)) {
+          e.preventDefault();
+          
+          const touch = e.touches[0];
+          
+          if (touchStartNote && touchStartNote.isDragging) {
+            // Dragging note
+            const world = screenToWorld(touch.clientX, touch.clientY);
+            touchStartNote.x = world.x;
+            touchStartNote.y = world.y;
+            hasDragged = true;
+          } else if (isDragging) {
+            // Panning canvas
+            const dx = touch.clientX - dragStart.x;
+            const dy = touch.clientY - dragStart.y;
+            camera.x += dx / camera.zoom;
+            camera.y += dy / camera.zoom;
+            dragStart = { x: touch.clientX, y: touch.clientY };
+            hasDragged = true;
+          }
+        } else if (e.touches.length === 2) {
+          e.preventDefault();
+          // Could add pinch zoom here
+        }
+      }, { passive: false });
+
+      canvas.addEventListener('touchend', (e) => {
+        clearTimeout(longPressTimer);
+        
+        if (touchStartNote) {
+          const currentTime = Date.now();
+          const touchDuration = currentTime - touchStartTime;
+          
+          if (touchStartNote.isDragging) {
+            // End dragging
+            touchStartNote.isDragging = false;
+            canvas.style.cursor = 'grab';
+            hasDragged = false;
+            touchStartNote = null;
+          } else if (touchDuration < LONG_PRESS_DURATION && !hasDragged) {
+            // Short tap on note
+            const timeSinceLastTap = currentTime - lastTapTime;
+            
+            if (lastTapNote === touchStartNote && timeSinceLastTap < DOUBLE_TAP_DELAY) {
+              // DOUBLE TAP - Open context menu
+              lastTapNote = null;
+              lastTapTime = 0;
+              removeContextMenu();
+              showContextMenu(touchStartPos.x, touchStartPos.y, touchStartNote);
+            } else {
+              // SINGLE TAP - Open note editor
+              lastTapNote = touchStartNote;
+              lastTapTime = currentTime;
+              removeContextMenu();
+              removeLinksPopup();
+              showNoteEditor(touchStartNote, (savedNote) => {
+                scheduleSave();
+              });
+            }
+          }
+        } else if (!hasDragged && e.touches.length === 0) {
+          // Tap on empty canvas
+          const currentTime = Date.now();
+          const touchDuration = currentTime - touchStartTime;
+          
+          if (touchDuration < LONG_PRESS_DURATION && !isLongPress) {
+            const timeSinceLastTap = currentTime - lastTapTime;
+            
+            if (lastTapNote === null && timeSinceLastTap < DOUBLE_TAP_DELAY) {
+              // DOUBLE TAP on empty - context menu for new note
+              lastTapTime = 0;
+              removeContextMenu();
+              showContextMenu(touchStartPos.x, touchStartPos.y, null);
+            } else {
+              lastTapTime = currentTime;
+              lastTapNote = null;
+            }
+          }
+        }
+        
+        isDragging = false;
+        isLongPress = false;
+        hasDragged = false;
+        touchStartNote = null;
+      }, { passive: false });
+
+      canvas.addEventListener('touchcancel', (e) => {
+        clearTimeout(longPressTimer);
+        if (touchStartNote) {
+          touchStartNote.isDragging = false;
+          canvas.style.cursor = 'grab';
+        }
+        isDragging = false;
+        isLongPress = false;
+        hasDragged = false;
+        touchStartNote = null;
+      }, { passive: false });
+    }
+
+    canvas.addEventListener('click', (e) => {
+      if (!isMobile) {
+        removeContextMenu();
+        removeLinksPopup();
+        
+        if (linkMode && linkMode.step === 2) {
+          const note = getNoteAt(e.clientX, e.clientY);
+          if (note && note.id !== linkMode.fromNote.id) {
+            finishLinkCreation(note);
+          }
+        }
       }
     });
 
-    window.addEventListener('resize', () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    });
-
-    // Prevent pull-to-refresh on mobile
     document.body.addEventListener('touchmove', (e) => {
-      e.preventDefault();
+      // Allow touchmove on inputs
+      if (e.target.tagName !== 'INPUT' && e.target.getAttribute('contenteditable') !== 'true') {
+        e.preventDefault();
+      }
     }, { passive: false });
+
+    window.addEventListener('resize', () => {
+      resizeCanvasForDevice();
+    });
 
     // Authentication handlers
     document.getElementById('googleSignInBtn').addEventListener('click', async () => {
@@ -1083,32 +1259,26 @@
     // Auth state observer
     auth.onAuthStateChanged(async (user) => {
       if (user) {
-        // User signed in
         currentUser = user;
         console.log('✅ Signed in as:', user.displayName);
         
-        // Hide login, show user info
         document.getElementById('loginOverlay').style.display = 'none';
         document.getElementById('userInfo').style.display = 'flex';
         document.getElementById('userName').textContent = user.displayName;
         document.getElementById('userAvatar').src = user.photoURL;
         
-        // Load user's notes
         await loadFromFirebase();
         
-        // If no notes, create welcome notes
         if (notes.length === 0) {
-          notes.push(new Note(-200, -100, 'Welcome', 'Right-click to create a new note or add links!'));
-          notes.push(new Note(200, 100, 'Getting Started', 'Click and drag to pan around'));
+          notes.push(new Note(-200, -100, 'Welcome', 'Right-click (desktop) or double-tap (mobile) to create a new note or add links!'));
+          notes.push(new Note(200, 100, 'Mobile Controls', 'Hold and drag to move notes. Single tap to open. Double tap for menu.'));
           saveToFirebase();
         }
       } else {
-        // User signed out
         currentUser = null;
         notes = [];
         links = [];
         
-        // Show login, hide user info
         document.getElementById('loginOverlay').style.display = 'flex';
         document.getElementById('userInfo').style.display = 'none';
         
