@@ -1234,14 +1234,20 @@
                 scheduleSave();
               }, 'edit', null, true);
             } else {
-              // SINGLE TAP - Open note editor
-              lastTapNote = touchStartNote;
-              lastTapTime = currentTime;
-              removeContextMenu();
-              removeLinksPopup();
-              showNoteEditor(touchStartNote, (savedNote) => {
-                scheduleSave();
-              }, 'edit', null, true);
+              // SINGLE TAP - Open note editor or handle linking
+              if (linkMode && linkMode.step === 2) {
+                // In linking mode - finish the link
+                finishLinkCreation(touchStartNote);
+              } else {
+                // Normal edit mode
+                lastTapNote = touchStartNote;
+                lastTapTime = currentTime;
+                removeContextMenu();
+                removeLinksPopup();
+                showNoteEditor(touchStartNote, (savedNote) => {
+                  scheduleSave();
+                }, 'edit', null, true);
+              }
             }
           }
         } else if (!hasDragged && e.touches.length === 0) {
