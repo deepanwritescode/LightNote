@@ -1310,6 +1310,14 @@
       canvas.addEventListener('touchend', (e) => {
         clearTimeout(longPressTimer);
         clearTimeout(longPressLinkTimer);
+        
+        // Don't process canvas touches if context menu is open - let it handle its own clicks
+        if (contextMenu) {
+          touchStartLink = null;
+          touchStartNote = null;
+          return;
+        }
+        
         touchStartLink = null;
         
         if (touchStartNote) {
@@ -1357,10 +1365,7 @@
           const currentTime = Date.now();
           const touchDuration = currentTime - touchStartTime;
           
-          // Close context menu if open
-          if (contextMenu) {
-            removeContextMenu();
-          } else if (touchDuration < LONG_PRESS_DURATION && !isLongPress) {
+          if (touchDuration < LONG_PRESS_DURATION && !isLongPress) {
             const timeSinceLastTap = currentTime - lastTapTime;
             
             if (lastTapNote === null && timeSinceLastTap < DOUBLE_TAP_DELAY) {
