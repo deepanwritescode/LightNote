@@ -252,9 +252,123 @@
     .text-selection-mode {
       cursor: text !important;
     }
+
+    .login-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: #1a1a1a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+
+    .login-box {
+      background: #2a2a2a;
+      padding: 40px;
+      border-radius: 12px;
+      box-shadow: 0 4px 30px rgba(0,0,0,0.6);
+      text-align: center;
+      border: 1px solid #3a3a3a;
+      max-width: 400px;
+    }
+
+    .login-box h1 {
+      color: #e0e0e0;
+      margin-bottom: 10px;
+      font-size: 28px;
+    }
+
+    .login-box p {
+      color: #999;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    .google-signin-btn {
+      background: white;
+      color: #444;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      transition: box-shadow 0.2s;
+    }
+
+    .google-signin-btn:hover {
+      box-shadow: 0 2px 8px rgba(255,255,255,0.2);
+    }
+
+    .user-info {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #2a2a2a;
+      padding: 12px 20px;
+      border-radius: 8px;
+      border: 1px solid #3a3a3a;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      z-index: 1000;
+    }
+
+    .user-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 2px solid #7c3aed;
+    }
+
+    .user-name {
+      color: #e0e0e0;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .logout-btn {
+      background: transparent;
+      color: #999;
+      border: 1px solid #3a3a3a;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      margin-left: 8px;
+    }
+
+    .logout-btn:hover {
+      background: #3a3a3a;
+      color: #e0e0e0;
+    }
   </style>
 </head>
 <body>
+  <div id="loginOverlay" class="login-overlay">
+    <div class="login-box">
+      <h1>Light Note</h1>
+      <p>Sign in to access your personal note graph</p>
+      <button id="googleSignInBtn" class="google-signin-btn">
+        <svg width="18" height="18" xmlns="http://www.w3.org/2000/svg"><g fill="none" fill-rule="evenodd"><path d="M17.6 9.2l-.1-1.8H9v3.4h4.8C13.6 12 13 13 12 13.6v2.2h3a8.8 8.8 0 0 0 2.6-6.6z" fill="#4285F4"/><path d="M9 18c2.4 0 4.5-.8 6-2.2l-3-2.2a5.4 5.4 0 0 1-8-2.9H1V13a9 9 0 0 0 8 5z" fill="#34A853"/><path d="M4 10.7a5.4 5.4 0 0 1 0-3.4V5H1a9 9 0 0 0 0 8l3-2.3z" fill="#FBBC05"/><path d="M9 3.6c1.3 0 2.5.4 3.4 1.3L15 2.3A9 9 0 0 0 1 5l3 2.4a5.4 5.4 0 0 1 5-3.7z" fill="#EA4335"/></g></svg>
+        Sign in with Google
+      </button>
+    </div>
+  </div>
+
+  <div id="userInfo" class="user-info" style="display: none;">
+    <img id="userAvatar" class="user-avatar" src="" alt="User">
+    <span id="userName" class="user-name"></span>
+    <button id="logoutBtn" class="logout-btn">Sign Out</button>
+  </div>
+
   <canvas id="canvas"></canvas>
   <div id="linkModeOverlay" class="link-mode-overlay">
     <div class="link-mode-message">Select a note to link to</div>
@@ -263,6 +377,7 @@
   <!-- Firebase Scripts -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 
   <script>
     // Firebase Configuration & Initialization
@@ -278,6 +393,9 @@
 
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
+    const auth = firebase.auth();
+    
+    let currentUser = null;
 
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
@@ -724,6 +842,8 @@
 
     // Firebase Save/Load Functions
     async function saveToFirebase() {
+      if (!currentUser) return;
+      
       try {
         const notesData = notes.map(note => ({
           id: note.id,
@@ -743,7 +863,7 @@
         
         console.log('Saving:', notesData.length, 'notes and', linksData.length, 'links');
         
-        await db.collection('userGraphs').doc('mainGraph').set({
+        await db.collection('users').doc(currentUser.uid).collection('graphs').doc('mainGraph').set({
           notes: notesData,
           links: linksData,
           lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
@@ -756,8 +876,10 @@
     }
 
     async function loadFromFirebase() {
+      if (!currentUser) return;
+      
       try {
-        const doc = await db.collection('userGraphs').doc('mainGraph').get();
+        const doc = await db.collection('users').doc(currentUser.uid).collection('graphs').doc('mainGraph').get();
         
         if (doc.exists) {
           const data = doc.data();
@@ -915,12 +1037,58 @@
       canvas.height = window.innerHeight;
     });
 
-    // Load existing data from Firebase
-    loadFromFirebase().then(() => {
-      if (notes.length === 0) {
-        notes.push(new Note(-200, -100, 'Welcome', 'Right-click to create a new note or add links!'));
-        notes.push(new Note(200, 100, 'Getting Started', 'Click and drag to pan around'));
-        saveToFirebase();
+    // Authentication handlers
+    document.getElementById('googleSignInBtn').addEventListener('click', async () => {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      try {
+        await auth.signInWithPopup(provider);
+      } catch (error) {
+        console.error('❌ Sign-in error:', error);
+        alert('Sign-in failed. Please try again.');
+      }
+    });
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      try {
+        await auth.signOut();
+      } catch (error) {
+        console.error('❌ Sign-out error:', error);
+      }
+    });
+
+    // Auth state observer
+    auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        // User signed in
+        currentUser = user;
+        console.log('✅ Signed in as:', user.displayName);
+        
+        // Hide login, show user info
+        document.getElementById('loginOverlay').style.display = 'none';
+        document.getElementById('userInfo').style.display = 'flex';
+        document.getElementById('userName').textContent = user.displayName;
+        document.getElementById('userAvatar').src = user.photoURL;
+        
+        // Load user's notes
+        await loadFromFirebase();
+        
+        // If no notes, create welcome notes
+        if (notes.length === 0) {
+          notes.push(new Note(-200, -100, 'Welcome', 'Right-click to create a new note or add links!'));
+          notes.push(new Note(200, 100, 'Getting Started', 'Click and drag to pan around'));
+          saveToFirebase();
+        }
+      } else {
+        // User signed out
+        currentUser = null;
+        notes = [];
+        links = [];
+        
+        // Show login, hide user info
+        document.getElementById('loginOverlay').style.display = 'flex';
+        document.getElementById('userInfo').style.display = 'none';
+        
+        console.log('ℹ️ Signed out');
       }
     });
 
