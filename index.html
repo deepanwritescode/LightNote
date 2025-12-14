@@ -799,4 +799,657 @@
     function removeContextMenu() {
       if (contextMenu) {
         contextMenu.remove();
-        cont
+        contextMenu = null;
+      }
+    }
+
+    function showNoteEditor(note, onSave, mode = 'edit', scrollToText = null, isMobileEditor = false) {
+      removeNoteEditor();
+      removeLinksPopup();
+      
+      noteEditor = document.createElement('div');
+      noteEditor.className = 'note-editor active';
+      
+      const noteLinks = getLinksForNote(note);
+      let displayContent = note.content;
+      
+      if (mode === 'edit') {
+        displayContent = renderLinkedText(note.content, noteLinks, note);
+      }
+      
+      const mobileActionsHTML = isMobileEditor && mode === 'edit' ? `
+        <div class="mobile-action-buttons show">
+          <button class="mobile-btn mobile-btn-link" id="editorLinkBtn">Add Link</button>
+          <button class="mobile-btn mobile-btn-delete" id="editorDeleteBtn">Delete</button>
+        </div>
+      ` : '';
+
+      const html = `
+        <div class="note-editor-header">
+          <input type="text" class="note-editor-title" placeholder="Title" value="${note.title}">
+        </div>
+        <div class="note-editor-body">
+          <div class="note-editor-content" contenteditable="true">${displayContent}</div>
+        </div>
+        <div class="note-editor-toolbar">
+          <button class="toolbar-btn" data-format="bold"><b>B</b></button>
+          <button class="toolbar-btn" data-format="italic"><i>I</i></button>
+          <button class="toolbar-btn" data-format="underline"><u>U</u></button>
+        </div>
+        ${mobileActionsHTML}
+        <div class="note-editor-footer">
+          <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
+          <button class="btn btn-primary" id="saveBtn">${mode === 'select' ? 'Confirm' : 'Save'}</button>
+        </div>
+      `;
+      
+      noteEditor.innerHTML = html;
+      document.body.appendChild(noteEditor);
+
+      const titleInput = noteEditor.querySelector('.note-editor-title');
+      const contentArea = noteEditor.querySelector('.note-editor-content');
+      const saveBtn = noteEditor.querySelector('#saveBtn');
+      const cancelBtn = noteEditor.querySelector('#cancelBtn');
+
+      if (mode === 'edit') {
+        contentArea.addEventListener('contextmenu', (e) => {
+          const target = e.target.closest('.linked-text');
+          if (target) {
+            e.preventDefault();
+            const linkText = target.textContent;
+            showLinksPopup(e.clientX, e.clientY, note, linkText);
+          }
+        });
+      }
+
+      if (scrollToText && mode === 'edit') {
+        setTimeout(() => {
+          const linkedSpans = contentArea.querySelectorAll('.linked-text');
+          for (let span of linkedSpans) {
+            if (span.textContent === scrollToText) {
+              span.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              span.style.background = 'rgba(124, 58, 237, 0.3)';
+              setTimeout(() => {
+                span.style.background = 'rgba(124, 58, 237, 0.1)';
+              }, 1000);
+              break;
+            }
+          }
+        }, 100);
+      }
+
+      noteEditor.querySelectorAll('[data-format]').forEach(btn => {
+        btn.onclick = () => {
+          document.execCommand(btn.dataset.format, false, null);
+          contentArea.focus();
+        };
+      });
+
+      // Mobile action buttons
+      if (isMobileEditor && mode === 'edit') {
+        const editorLinkBtn = noteEditor.querySelector('#editorLinkBtn');
+        const editorDeleteBtn = noteEditor.querySelector('#editorDeleteBtn');
+
+        if (editorLinkBtn) {
+          editorLinkBtn.onclick = () => {
+            note.title = titleInput.value;
+            note.content = contentArea.innerText;
+            removeNoteEditor();
+            startLinkCreation(note);
+          };
+        }
+
+        if (editorDeleteBtn) {
+          editorDeleteBtn.onclick = () => {
+            removeNoteEditor();
+            deleteNote(note);
+            scheduleSave();
+          };
+        }
+      }
+
+      if (mode === 'select') {
+        contentArea.contentEditable = 'false';
+        contentArea.style.cursor = 'text';
+        contentArea.style.userSelect = 'text';
+        
+        saveBtn.onclick = () => {
+          const selection = window.getSelection();
+          if (!selection.toString()) {
+            alert('Please select some text');
+            return;
+          }
+          const selectedText = selection.toString();
+          onSave(selectedText);
+          removeNoteEditor();
+        };
+      } else {
+        saveBtn.onclick = () => {
+          note.title = titleInput.value;
+          note.content = contentArea.innerText;
+          onSave(note);
+          removeNoteEditor();
+        };
+      }
+
+      cancelBtn.onclick = () => {
+        removeNoteEditor();
+        if (linkMode) linkMode = null;
+      };
+
+      titleInput.focus();
+    }
+
+    function removeNoteEditor() {
+      if (noteEditor) {
+        noteEditor.remove();
+        noteEditor = null;
+      }
+    }
+
+    function getLinksForNote(note) {
+      const result = [];
+      links.forEach(link => {
+        if (link.from.id === note.id) {
+          result.push({ text: link.fromText, targetNote: link.to, targetText: link.toText });
+        }
+        if (link.to.id === note.id) {
+          result.push({ text: link.toText, targetNote: link.from, targetText: link.fromText });
+        }
+      });
+      return result;
+    }
+
+    function renderLinkedText(content, noteLinks, currentNote) {
+      let rendered = content;
+      const replacements = [];
+      
+      noteLinks.forEach(link => {
+        const index = rendered.indexOf(link.text);
+        if (index !== -1) {
+          replacements.push({
+            start: index,
+            end: index + link.text.length,
+            text: link.text,
+            html: `<span class="linked-text" data-link-text="${link.text}">${link.text}</span>`
+          });
+        }
+      });
+      
+      replacements.sort((a, b) => b.start - a.start);
+      replacements.forEach(r => {
+        rendered = rendered.substring(0, r.start) + r.html + rendered.substring(r.end);
+      });
+      
+      return rendered;
+    }
+
+    function showLinksPopup(x, y, note, linkText) {
+      removeLinksPopup();
+      
+      const relevantLinks = [];
+      links.forEach(link => {
+        if (link.from.id === note.id && link.fromText === linkText) {
+          relevantLinks.push({ targetNote: link.to, targetText: link.toText });
+        }
+        if (link.to.id === note.id && link.toText === linkText) {
+          relevantLinks.push({ targetNote: link.from, targetText: link.fromText });
+        }
+      });
+      
+      if (relevantLinks.length === 0) return;
+      
+      linksPopup = document.createElement('div');
+      linksPopup.className = 'links-popup';
+      linksPopup.style.left = x + 'px';
+      linksPopup.style.top = y + 'px';
+      
+      relevantLinks.forEach(link => {
+        const item = document.createElement('div');
+        item.className = 'links-popup-item';
+        item.innerHTML = `
+          <div class="links-popup-title">${link.targetNote.title || 'Untitled'}</div>
+          <div class="links-popup-text">"${link.targetText}"</div>
+        `;
+        item.onclick = () => {
+          removeLinksPopup();
+          removeNoteEditor();
+          showNoteEditor(link.targetNote, (savedNote) => {}, 'edit', link.targetText);
+        };
+        linksPopup.appendChild(item);
+      });
+      
+      document.body.appendChild(linksPopup);
+    }
+
+    function removeLinksPopup() {
+      if (linksPopup) {
+        linksPopup.remove();
+        linksPopup = null;
+      }
+    }
+
+    async function saveToFirebase() {
+      if (!currentUser) return;
+      
+      const notesData = notes.map(note => ({
+        id: note.id,
+        x: note.x,
+        y: note.y,
+        title: note.title,
+        content: note.content,
+        radius: note.radius
+      }));
+      
+      const linksData = links.map(link => ({
+        fromId: link.from.id,
+        toId: link.to.id,
+        fromText: link.fromText,
+        toText: link.toText
+      }));
+      
+      await db.collection('users').doc(currentUser.uid).collection('graphs').doc('mainGraph').set({
+        notes: notesData,
+        links: linksData,
+        lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    }
+
+    async function loadFromFirebase() {
+      if (!currentUser) return;
+      
+      const doc = await db.collection('users').doc(currentUser.uid).collection('graphs').doc('mainGraph').get();
+      
+      if (doc.exists) {
+        const data = doc.data();
+        
+        notes = data.notes.map(noteData => {
+          const note = new Note(noteData.x, noteData.y, noteData.title, noteData.content);
+          note.id = noteData.id;
+          return note;
+        });
+        
+        links = data.links.map(linkData => {
+          const fromNote = notes.find(n => n.id === linkData.fromId);
+          const toNote = notes.find(n => n.id === linkData.toId);
+          if (fromNote && toNote) {
+            return new Link(fromNote, toNote, linkData.fromText, linkData.toText);
+          }
+        }).filter(Boolean);
+      }
+    }
+
+    let saveTimeout;
+    function scheduleSave() {
+      clearTimeout(saveTimeout);
+      saveTimeout = setTimeout(() => {
+        saveToFirebase();
+      }, 3000);
+    }
+
+    function createNote(x, y) {
+      const note = new Note(x, y);
+      notes.push(note);
+      
+      showNoteEditor(note, (savedNote) => {
+        if (!savedNote.title && !savedNote.content) {
+          notes = notes.filter(n => n.id !== note.id);
+        }
+        scheduleSave();
+      });
+    }
+
+    function deleteNote(note) {
+      notes = notes.filter(n => n.id !== note.id);
+      links = links.filter(l => l.from.id !== note.id && l.to.id !== note.id);
+      scheduleSave();
+    }
+
+    function deleteLink(link) {
+      links = links.filter(l => l !== link);
+      scheduleSave();
+    }
+
+    function startLinkCreation(fromNote) {
+      linkMode = { step: 1, fromNote: fromNote, fromText: null };
+      
+      showNoteEditor(fromNote, (selectedText) => {
+        linkMode.fromText = selectedText;
+        linkMode.step = 2;
+        document.getElementById('linkModeOverlay').classList.add('active');
+      }, 'select');
+    }
+
+    function finishLinkCreation(toNote) {
+      if (!linkMode || linkMode.step !== 2) return;
+      
+      document.getElementById('linkModeOverlay').classList.remove('active');
+      
+      showNoteEditor(toNote, (selectedText) => {
+        const link = new Link(linkMode.fromNote, toNote, linkMode.fromText, selectedText);
+        links.push(link);
+        linkMode = null;
+        scheduleSave();
+      }, 'select');
+    }
+
+    // DESKTOP EVENT LISTENERS
+    if (!isMobile) {
+      canvas.addEventListener('mousemove', (e) => {
+        if (!draggingNote && !isDragging) {
+          const link = getLinkAt(e.clientX, e.clientY);
+          if (link !== hoveredLink) {
+            hoveredLink = link;
+            canvas.style.cursor = link ? 'pointer' : 'grab';
+          }
+        }
+        
+        if (draggingNote) {
+          hasDragged = true;
+          const world = screenToWorld(e.clientX, e.clientY);
+          draggingNote.x = world.x;
+          draggingNote.y = world.y;
+        } else if (isDragging) {
+          const dx = e.clientX - dragStart.x;
+          const dy = e.clientY - dragStart.y;
+          camera.x += dx / camera.zoom;
+          camera.y += dy / camera.zoom;
+          dragStart = { x: e.clientX, y: e.clientY };
+        }
+      });
+
+      canvas.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const link = getLinkAt(e.clientX, e.clientY);
+        if (link) {
+          showContextMenu(e.clientX, e.clientY, null, link);
+          return;
+        }
+        
+        const note = getNoteAt(e.clientX, e.clientY);
+        showContextMenu(e.clientX, e.clientY, note, null);
+      });
+
+      canvas.addEventListener('click', (e) => {
+        removeContextMenu();
+        removeLinksPopup();
+        
+        if (linkMode && linkMode.step === 2) {
+          const note = getNoteAt(e.clientX, e.clientY);
+          if (note && note.id !== linkMode.fromNote.id) {
+            finishLinkCreation(note);
+          }
+        }
+      });
+
+      canvas.addEventListener('mousedown', (e) => {
+        if (e.button === 0 && !linkMode) {
+          const note = getNoteAt(e.clientX, e.clientY);
+          if (note) {
+            draggingNote = note;
+            note.isDragging = true;
+            hasDragged = false;
+            canvas.style.cursor = 'grabbing';
+          } else {
+            isDragging = true;
+            dragStart = { x: e.clientX, y: e.clientY };
+          }
+        }
+      });
+
+      canvas.addEventListener('mouseup', (e) => {
+        if (draggingNote) {
+          draggingNote.isDragging = false;
+          const wasJustClick = !hasDragged;
+          const clickedNote = draggingNote;
+          draggingNote = null;
+          canvas.style.cursor = 'grab';
+          
+          if (wasJustClick && !linkMode) {
+            showNoteEditor(clickedNote, (savedNote) => {});
+          }
+        }
+        isDragging = false;
+      });
+
+      canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const zoomSpeed = 0.1;
+        const delta = e.deltaY > 0 ? -zoomSpeed : zoomSpeed;
+        camera.zoom = Math.max(0.1, Math.min(3, camera.zoom + delta));
+      });
+    } else {
+      // MOBILE EVENT LISTENERS
+      canvas.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+          const touch = e.touches[0];
+          touchStartTime = Date.now();
+          touchStartPos = { x: touch.clientX, y: touch.clientY };
+          
+          // Check for link first
+          touchStartLink = getLinkAt(touch.clientX, touch.clientY);
+          if (touchStartLink) {
+            longPressLinkTimer = setTimeout(() => {
+              if (navigator.vibrate) navigator.vibrate(10);
+              showContextMenu(touch.clientX, touch.clientY, null, touchStartLink);
+            }, LONG_PRESS_DURATION);
+            return;
+          }
+          
+          // Check for note
+          touchStartNote = getNoteAt(touch.clientX, touch.clientY);
+          
+          if (touchStartNote && !linkMode) {
+            isLongPress = false;
+            
+            // Start long-press timer for note dragging
+            longPressTimer = setTimeout(() => {
+              isLongPress = true;
+              touchStartNote.isDragging = true;
+              
+              // Haptic feedback
+              if (navigator.vibrate) {
+                navigator.vibrate(10);
+              }
+              
+              // Show hint
+              const hint = document.getElementById('dragHint');
+              hint.classList.add('show');
+              setTimeout(() => {
+                hint.classList.remove('show');
+              }, 1500);
+              
+              canvas.style.cursor = 'grabbing';
+            }, LONG_PRESS_DURATION);
+          } else if (!touchStartNote && !touchStartLink) {
+            // Long press on empty canvas to drag
+            longPressTimer = setTimeout(() => {
+              isLongPress = true;
+              isDragging = true;
+              dragStart = { x: touch.clientX, y: touch.clientY };
+              
+              if (navigator.vibrate) {
+                navigator.vibrate(10);
+              }
+              
+              canvas.style.cursor = 'grabbing';
+            }, LONG_PRESS_DURATION);
+          }
+        }
+      }, { passive: false });
+
+      canvas.addEventListener('touchmove', (e) => {
+        clearTimeout(longPressLinkTimer);
+        
+        if (e.touches.length === 1 && (isLongPress || isDragging)) {
+          e.preventDefault();
+          
+          const touch = e.touches[0];
+          
+          if (touchStartNote && touchStartNote.isDragging) {
+            // Dragging note
+            const world = screenToWorld(touch.clientX, touch.clientY);
+            touchStartNote.x = world.x;
+            touchStartNote.y = world.y;
+            hasDragged = true;
+          } else if (isDragging) {
+            // Panning canvas
+            const dx = touch.clientX - dragStart.x;
+            const dy = touch.clientY - dragStart.y;
+            camera.x += dx / camera.zoom;
+            camera.y += dy / camera.zoom;
+            dragStart = { x: touch.clientX, y: touch.clientY };
+            hasDragged = true;
+          }
+        } else if (e.touches.length === 2) {
+          e.preventDefault();
+          // Could add pinch zoom here
+        }
+      }, { passive: false });
+
+      canvas.addEventListener('touchend', (e) => {
+        clearTimeout(longPressTimer);
+        clearTimeout(longPressLinkTimer);
+        touchStartLink = null;
+        
+        if (touchStartNote) {
+          const currentTime = Date.now();
+          const touchDuration = currentTime - touchStartTime;
+          
+          if (touchStartNote.isDragging) {
+            // End dragging note
+            touchStartNote.isDragging = false;
+            canvas.style.cursor = 'grab';
+            hasDragged = false;
+            touchStartNote = null;
+          } else if (touchDuration < LONG_PRESS_DURATION && !hasDragged) {
+            // Short tap on note
+            const timeSinceLastTap = currentTime - lastTapTime;
+            
+            if (lastTapNote === touchStartNote && timeSinceLastTap < DOUBLE_TAP_DELAY) {
+              // DOUBLE TAP - Open note editor with mobile buttons
+              lastTapNote = null;
+              lastTapTime = 0;
+              removeContextMenu();
+              removeLinksPopup();
+              showNoteEditor(touchStartNote, (savedNote) => {
+                scheduleSave();
+              }, 'edit', null, true);
+            } else {
+              // SINGLE TAP - Open note editor or handle linking
+              if (linkMode && linkMode.step === 2) {
+                // In linking mode - finish the link
+                finishLinkCreation(touchStartNote);
+              } else {
+                // Normal edit mode
+                lastTapNote = touchStartNote;
+                lastTapTime = currentTime;
+                removeContextMenu();
+                removeLinksPopup();
+                showNoteEditor(touchStartNote, (savedNote) => {
+                  scheduleSave();
+                }, 'edit', null, true);
+              }
+            }
+          }
+        } else if (!hasDragged && e.touches.length === 0) {
+          // Tap on empty canvas
+          const currentTime = Date.now();
+          const touchDuration = currentTime - touchStartTime;
+          
+          // Close context menu if open
+          if (contextMenu) {
+            removeContextMenu();
+          } else if (touchDuration < LONG_PRESS_DURATION && !isLongPress) {
+            const timeSinceLastTap = currentTime - lastTapTime;
+            
+            if (lastTapNote === null && timeSinceLastTap < DOUBLE_TAP_DELAY) {
+              // DOUBLE TAP on empty - create new note
+              lastTapTime = 0;
+              const world = screenToWorld(touchStartPos.x, touchStartPos.y);
+              createNote(world.x, world.y);
+            } else {
+              lastTapTime = currentTime;
+              lastTapNote = null;
+            }
+          }
+        }
+        
+        // End canvas dragging
+        if (isDragging) {
+          isDragging = false;
+          canvas.style.cursor = 'grab';
+        }
+        
+        isLongPress = false;
+        hasDragged = false;
+        touchStartNote = null;
+      }, { passive: false });
+
+      canvas.addEventListener('touchcancel', (e) => {
+        clearTimeout(longPressTimer);
+        clearTimeout(longPressLinkTimer);
+        if (touchStartNote) {
+          touchStartNote.isDragging = false;
+          canvas.style.cursor = 'grab';
+        }
+        isDragging = false;
+        isLongPress = false;
+        hasDragged = false;
+        touchStartNote = null;
+        touchStartLink = null;
+      }, { passive: false });
+    }
+
+    document.body.addEventListener('touchmove', (e) => {
+      // Allow touchmove on inputs
+      if (e.target.tagName !== 'INPUT' && e.target.getAttribute('contenteditable') !== 'true') {
+        e.preventDefault();
+      }
+    }, { passive: false });
+
+    window.addEventListener('resize', () => {
+      resizeCanvasForDevice();
+    });
+
+    // Authentication handlers
+    document.getElementById('googleSignInBtn').addEventListener('click', async () => {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      await auth.signInWithPopup(provider);
+    });
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await auth.signOut();
+    });
+
+    // Auth state observer
+    auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        currentUser = user;
+        
+        document.getElementById('loginOverlay').style.display = 'none';
+        document.getElementById('userInfo').style.display = 'flex';
+        document.getElementById('userName').textContent = user.displayName;
+        document.getElementById('userAvatar').src = user.photoURL;
+        
+        await loadFromFirebase();
+        
+        if (notes.length === 0) {
+          notes.push(new Note(-200, -100, 'Welcome', 'Right-click (desktop) or double-tap (mobile) to create a new note or add links!'));
+          notes.push(new Note(200, 100, 'Mobile Controls', 'Hold and drag to move notes. Single tap to open. Double tap for menu.'));
+          saveToFirebase();
+        }
+      } else {
+        currentUser = null;
+        notes = [];
+        links = [];
+        
+        document.getElementById('loginOverlay').style.display = 'flex';
+        document.getElementById('userInfo').style.display = 'none';
+      }
+    });
+
+    animate();
+  </script>
+</body>
+</html>
