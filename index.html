@@ -19,9 +19,6 @@
       width: 100%;
       height: 100%;
       touch-action: none;
-      -webkit-user-select: none;
-      user-select: none;
-      -webkit-touch-callout: none;
     }
 
     #canvas {
@@ -30,12 +27,6 @@
       height: 100vh;
       cursor: grab;
       background: #1a1a1a;
-      position: fixed;
-      top: 0;
-      left: 0;
-      -webkit-touch-callout: none;
-      -webkit-user-select: none;
-      user-select: none;
     }
 
     #canvas:active {
@@ -62,14 +53,6 @@
 
     .context-menu-item:hover {
       background: #3a3a3a;
-    }
-
-    .context-menu-item.danger {
-      color: #ef4444;
-    }
-
-    .context-menu-item.danger:hover {
-      background: #3a1a1a;
     }
 
     .note-editor {
@@ -127,8 +110,6 @@
       white-space: pre-wrap;
       background: transparent;
       color: #e0e0e0;
-      -webkit-user-select: text;
-      user-select: text;
     }
 
     .note-editor-content::placeholder {
@@ -372,63 +353,6 @@
       background: #3a3a3a;
       color: #e0e0e0;
     }
-
-    .drag-hint {
-      position: fixed;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: #2a2a2a;
-      padding: 12px 24px;
-      border-radius: 8px;
-      border: 1px solid #3a3a3a;
-      color: #e0e0e0;
-      font-size: 14px;
-      z-index: 500;
-      display: none;
-      pointer-events: none;
-    }
-
-    .drag-hint.show {
-      display: block;
-    }
-
-    .mobile-action-buttons {
-      display: none;
-      gap: 8px;
-      margin-top: 12px;
-    }
-
-    .mobile-action-buttons.show {
-      display: flex;
-    }
-
-    .mobile-btn {
-      flex: 1;
-      padding: 10px 16px;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 500;
-      color: white;
-    }
-
-    .mobile-btn-link {
-      background: #7c3aed;
-    }
-
-    .mobile-btn-link:active {
-      background: #6d28d9;
-    }
-
-    .mobile-btn-delete {
-      background: #dc2626;
-    }
-
-    .mobile-btn-delete:active {
-      background: #b91c1c;
-    }
   </style>
 </head>
 <body>
@@ -452,10 +376,6 @@
   <canvas id="canvas"></canvas>
   <div id="linkModeOverlay" class="link-mode-overlay">
     <div class="link-mode-message">Select a note to link to</div>
-  </div>
-
-  <div id="dragHint" class="drag-hint">
-    Hold to drag
   </div>
 
   <!-- Firebase Scripts -->
@@ -482,21 +402,10 @@
     let currentUser = null;
 
     const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d', { willReadFrequently: false });
+    const ctx = canvas.getContext('2d');
     
-    // Fix for mobile DPI
-    function resizeCanvasForDevice() {
-      const dpr = window.devicePixelRatio || 1;
-      const rect = canvas.getBoundingClientRect();
-      
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
-      
-      ctx.scale(dpr, dpr);
-    }
-    
-    resizeCanvasForDevice();
-    window.addEventListener('resize', resizeCanvasForDevice);
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
 
     let notes = [];
     let links = [];
@@ -511,22 +420,10 @@
     let linksPopup = null;
     let hasDragged = false;
     let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    
-    // Touch variables
-    let touchStartTime = 0;
-    let touchStartPos = { x: 0, y: 0 };
-    let touchStartNote = null;
     let longPressTimer = null;
-    let isLongPress = false;
-    let lastTapTime = 0;
-    let lastTapNote = null;
-    const LONG_PRESS_DURATION = 500;
-    const DOUBLE_TAP_DELAY = 300;
-
-    // Link interaction variables
-    let hoveredLink = null;
-    let longPressLinkTimer = null;
-    let touchStartLink = null;
+    let longPressTarget = null;
+    let lastTap = 0;
+    let touchStartPos = { x: 0, y: 0 };
 
     class Note {
       constructor(x, y, title = '', content = '') {
@@ -553,15 +450,15 @@
 
     function screenToWorld(sx, sy) {
       return {
-        x: (sx - canvas.clientWidth / 2) / camera.zoom - camera.x,
-        y: (sy - canvas.clientHeight / 2) / camera.zoom - camera.y
+        x: (sx - canvas.width / 2) / camera.zoom - camera.x,
+        y: (sy - canvas.height / 2) / camera.zoom - camera.y
       };
     }
 
     function worldToScreen(wx, wy) {
       return {
-        x: (wx + camera.x) * camera.zoom + canvas.clientWidth / 2,
-        y: (wy + camera.y) * camera.zoom + canvas.clientHeight / 2
+        x: (wx + camera.x) * camera.zoom + canvas.width / 2,
+        y: (wy + camera.y) * camera.zoom + canvas.height / 2
       };
     }
 
@@ -571,6 +468,7 @@
       const damping = 0.85;
       const centerPull = 0.001;
 
+      // Repulsion between all nodes
       for (let i = 0; i < notes.length; i++) {
         if (notes[i].isDragging) continue;
         
@@ -590,11 +488,12 @@
         }
       }
 
+      // Attraction along links
       links.forEach(link => {
         const dx = link.to.x - link.from.x;
         const dy = link.to.y - link.from.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        const desiredDist = 200;
+        const desiredDist = 200; // Increased desired distance between linked nodes
         const force = (dist - desiredDist) * attraction;
         const fx = (dx / dist) * force;
         const fy = (dy / dist) * force;
@@ -609,6 +508,7 @@
         }
       });
 
+      // Center pull and update positions
       notes.forEach(note => {
         if (note.isDragging) {
           note.vx = 0;
@@ -626,16 +526,17 @@
     }
 
     function draw() {
-      ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+      // Draw grid dots
       const gridSize = 40;
       const dotRadius = 1.5;
       ctx.fillStyle = '#333333';
       
-      const startX = Math.floor(((-camera.x - canvas.clientWidth / 2 / camera.zoom) / gridSize)) * gridSize;
-      const startY = Math.floor(((-camera.y - canvas.clientHeight / 2 / camera.zoom) / gridSize)) * gridSize;
-      const endX = startX + canvas.clientWidth / camera.zoom + gridSize * 2;
-      const endY = startY + canvas.clientHeight / camera.zoom + gridSize * 2;
+      const startX = Math.floor(((-camera.x - canvas.width / 2 / camera.zoom) / gridSize)) * gridSize;
+      const startY = Math.floor(((-camera.y - canvas.height / 2 / camera.zoom) / gridSize)) * gridSize;
+      const endX = startX + canvas.width / camera.zoom + gridSize * 2;
+      const endY = startY + canvas.height / camera.zoom + gridSize * 2;
       
       for (let x = startX; x < endX; x += gridSize) {
         for (let y = startY; y < endY; y += gridSize) {
@@ -646,28 +547,23 @@
         }
       }
 
+      // Draw links
+      ctx.strokeStyle = '#555';
+      ctx.lineWidth = 2;
       links.forEach(link => {
         const from = worldToScreen(link.from.x, link.from.y);
         const to = worldToScreen(link.to.x, link.to.y);
-        
-        // Highlight hovered link
-        if (hoveredLink === link) {
-          ctx.strokeStyle = '#a78bfa';
-          ctx.lineWidth = 4;
-        } else {
-          ctx.strokeStyle = '#555';
-          ctx.lineWidth = 2;
-        }
-        
         ctx.beginPath();
         ctx.moveTo(from.x, from.y);
         ctx.lineTo(to.x, to.y);
         ctx.stroke();
       });
 
+      // Draw notes
       notes.forEach(note => {
         const pos = worldToScreen(note.x, note.y);
         
+        // Node circle
         ctx.fillStyle = '#a78bfa';
         ctx.strokeStyle = '#000';
         ctx.lineWidth = 2;
@@ -676,6 +572,7 @@
         ctx.fill();
         ctx.stroke();
 
+        // Title
         if (note.title) {
           ctx.fillStyle = '#e0e0e0';
           ctx.font = `${12 * camera.zoom}px Arial`;
@@ -698,53 +595,18 @@
       return null;
     }
 
-    function getLinkAt(sx, sy) {
-      const world = screenToWorld(sx, sy);
-      const threshold = 8 / camera.zoom; // Click threshold in world space
-      
-      for (let link of links) {
-        const dist = distanceToLineSegment(
-          world.x, world.y,
-          link.from.x, link.from.y,
-          link.to.x, link.to.y
-        );
-        
-        if (dist < threshold) {
-          return link;
-        }
-      }
-      return null;
-    }
-
-    function distanceToLineSegment(px, py, x1, y1, x2, y2) {
-      const dx = x2 - x1;
-      const dy = y2 - y1;
-      const lengthSquared = dx * dx + dy * dy;
-      
-      if (lengthSquared === 0) {
-        return Math.sqrt((px - x1) * (px - x1) + (py - y1) * (py - y1));
-      }
-      
-      let t = ((px - x1) * dx + (py - y1) * dy) / lengthSquared;
-      t = Math.max(0, Math.min(1, t));
-      
-      const nearestX = x1 + t * dx;
-      const nearestY = y1 + t * dy;
-      
-      return Math.sqrt((px - nearestX) * (px - nearestX) + (py - nearestY) * (py - nearestY));
-    }
-
     function animate() {
       applyForces();
       draw();
       requestAnimationFrame(animate);
     }
 
-    function showContextMenu(x, y, note, link) {
+    function showContextMenu(x, y, note) {
       removeContextMenu();
       contextMenu = document.createElement('div');
       contextMenu.className = 'context-menu';
       
+      // On mobile, center the menu on screen instead of at tap position
       if (isMobile) {
         contextMenu.style.left = '50%';
         contextMenu.style.top = '50%';
@@ -754,32 +616,20 @@
         contextMenu.style.top = y + 'px';
       }
 
-      if (link) {
-        const deleteLinkItem = document.createElement('div');
-        deleteLinkItem.className = 'context-menu-item danger';
-        deleteLinkItem.textContent = 'Delete Link';
-        deleteLinkItem.onclick = (e) => {
-          e.stopPropagation();
-          removeContextMenu();
-          deleteLink(link);
-        };
-        contextMenu.appendChild(deleteLinkItem);
-      } else if (note) {
+      if (note) {
         const addLinkItem = document.createElement('div');
         addLinkItem.className = 'context-menu-item';
         addLinkItem.textContent = 'Add Link';
-        addLinkItem.onclick = (e) => {
-          e.stopPropagation();
+        addLinkItem.onclick = () => {
           removeContextMenu();
           startLinkCreation(note);
         };
         contextMenu.appendChild(addLinkItem);
 
         const deleteItem = document.createElement('div');
-        deleteItem.className = 'context-menu-item danger';
+        deleteItem.className = 'context-menu-item';
         deleteItem.textContent = 'Delete Note';
-        deleteItem.onclick = (e) => {
-          e.stopPropagation();
+        deleteItem.onclick = () => {
           removeContextMenu();
           deleteNote(note);
         };
@@ -788,8 +638,7 @@
         const newNoteItem = document.createElement('div');
         newNoteItem.className = 'context-menu-item';
         newNoteItem.textContent = 'New Note';
-        newNoteItem.onclick = (e) => {
-          e.stopPropagation();
+        newNoteItem.onclick = () => {
           removeContextMenu();
           const world = screenToWorld(x, y);
           createNote(world.x, world.y);
@@ -798,53 +647,48 @@
       }
 
       document.body.appendChild(contextMenu);
-      
-      // Add click listener to close menu when clicking outside - with a slight delay
-      // This prevents the touchend that triggered the menu from immediately closing it
-      setTimeout(() => {
-        document.addEventListener('click', closeContextMenuOnClickOutside);
-        document.addEventListener('touchend', closeContextMenuOnClickOutside);
-      }, 100);
-    }
-
-    function closeContextMenuOnClickOutside(e) {
-      if (contextMenu && !contextMenu.contains(e.target)) {
-        removeContextMenu();
-        document.removeEventListener('click', closeContextMenuOnClickOutside);
-        document.removeEventListener('touchend', closeContextMenuOnClickOutside);
-      }
     }
 
     function removeContextMenu() {
       if (contextMenu) {
         contextMenu.remove();
         contextMenu = null;
-        document.removeEventListener('click', closeContextMenuOnClickOutside);
-        document.removeEventListener('touchend', closeContextMenuOnClickOutside);
       }
     }
 
-    function showNoteEditor(note, onSave, mode = 'edit', scrollToText = null, isMobileEditor = false) {
+    // Close context menu when clicking/tapping outside
+    function setupContextMenuCloseHandler() {
+      const closeHandler = (e) => {
+        if (contextMenu && !contextMenu.contains(e.target)) {
+          removeContextMenu();
+          document.removeEventListener('click', closeHandler);
+          document.removeEventListener('touchend', closeHandler);
+        }
+      };
+      
+      // Add listeners after a tiny delay to prevent immediate closure
+      setTimeout(() => {
+        document.addEventListener('click', closeHandler);
+        document.addEventListener('touchend', closeHandler);
+      }, 100);
+    }
+
+    function showNoteEditor(note, onSave, mode = 'edit', scrollToText = null) {
       removeNoteEditor();
       removeLinksPopup();
       
       noteEditor = document.createElement('div');
       noteEditor.className = 'note-editor active';
       
+      // Get links for this note
       const noteLinks = getLinksForNote(note);
       let displayContent = note.content;
       
       if (mode === 'edit') {
+        // Render linked text as purple
         displayContent = renderLinkedText(note.content, noteLinks, note);
       }
       
-      const mobileActionsHTML = isMobileEditor && mode === 'edit' ? `
-        <div class="mobile-action-buttons show">
-          <button class="mobile-btn mobile-btn-link" id="editorLinkBtn">Add Link</button>
-          <button class="mobile-btn mobile-btn-delete" id="editorDeleteBtn">Delete</button>
-        </div>
-      ` : '';
-
       const html = `
         <div class="note-editor-header">
           <input type="text" class="note-editor-title" placeholder="Title" value="${note.title}">
@@ -857,7 +701,6 @@
           <button class="toolbar-btn" data-format="italic"><i>I</i></button>
           <button class="toolbar-btn" data-format="underline"><u>U</u></button>
         </div>
-        ${mobileActionsHTML}
         <div class="note-editor-footer">
           <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
           <button class="btn btn-primary" id="saveBtn">${mode === 'select' ? 'Confirm' : 'Save'}</button>
@@ -872,6 +715,7 @@
       const saveBtn = noteEditor.querySelector('#saveBtn');
       const cancelBtn = noteEditor.querySelector('#cancelBtn');
 
+      // Handle right-clicks on linked text
       if (mode === 'edit') {
         contentArea.addEventListener('contextmenu', (e) => {
           const target = e.target.closest('.linked-text');
@@ -883,6 +727,7 @@
         });
       }
 
+      // Scroll to specific text if provided
       if (scrollToText && mode === 'edit') {
         setTimeout(() => {
           const linkedSpans = contentArea.querySelectorAll('.linked-text');
@@ -899,584 +744,5 @@
         }, 100);
       }
 
-      noteEditor.querySelectorAll('[data-format]').forEach(btn => {
-        btn.onclick = () => {
-          document.execCommand(btn.dataset.format, false, null);
-          contentArea.focus();
-        };
-      });
-
-      // Mobile action buttons
-      if (isMobileEditor && mode === 'edit') {
-        const editorLinkBtn = noteEditor.querySelector('#editorLinkBtn');
-        const editorDeleteBtn = noteEditor.querySelector('#editorDeleteBtn');
-
-        if (editorLinkBtn) {
-          editorLinkBtn.onclick = () => {
-            note.title = titleInput.value;
-            note.content = contentArea.innerText;
-            removeNoteEditor();
-            startLinkCreation(note);
-          };
-        }
-
-        if (editorDeleteBtn) {
-          editorDeleteBtn.onclick = () => {
-            removeNoteEditor();
-            deleteNote(note);
-            scheduleSave();
-          };
-        }
-      }
-
-      if (mode === 'select') {
-        contentArea.contentEditable = 'false';
-        contentArea.style.cursor = 'text';
-        contentArea.style.userSelect = 'text';
-        
-        saveBtn.onclick = () => {
-          const selection = window.getSelection();
-          if (!selection.toString()) {
-            alert('Please select some text');
-            return;
-          }
-          const selectedText = selection.toString();
-          onSave(selectedText);
-          removeNoteEditor();
-        };
-      } else {
-        saveBtn.onclick = () => {
-          note.title = titleInput.value;
-          note.content = contentArea.innerText;
-          onSave(note);
-          removeNoteEditor();
-        };
-      }
-
-      cancelBtn.onclick = () => {
-        removeNoteEditor();
-        if (linkMode) linkMode = null;
-      };
-
-      titleInput.focus();
-    }
-
-    function removeNoteEditor() {
-      if (noteEditor) {
-        noteEditor.remove();
-        noteEditor = null;
-      }
-    }
-
-    function getLinksForNote(note) {
-      const result = [];
-      links.forEach(link => {
-        if (link.from.id === note.id) {
-          result.push({ text: link.fromText, targetNote: link.to, targetText: link.toText });
-        }
-        if (link.to.id === note.id) {
-          result.push({ text: link.toText, targetNote: link.from, targetText: link.fromText });
-        }
-      });
-      return result;
-    }
-
-    function renderLinkedText(content, noteLinks, currentNote) {
-      let rendered = content;
-      const replacements = [];
-      
-      noteLinks.forEach(link => {
-        const index = rendered.indexOf(link.text);
-        if (index !== -1) {
-          replacements.push({
-            start: index,
-            end: index + link.text.length,
-            text: link.text,
-            html: `<span class="linked-text" data-link-text="${link.text}">${link.text}</span>`
-          });
-        }
-      });
-      
-      replacements.sort((a, b) => b.start - a.start);
-      replacements.forEach(r => {
-        rendered = rendered.substring(0, r.start) + r.html + rendered.substring(r.end);
-      });
-      
-      return rendered;
-    }
-
-    function showLinksPopup(x, y, note, linkText) {
-      removeLinksPopup();
-      
-      const relevantLinks = [];
-      links.forEach(link => {
-        if (link.from.id === note.id && link.fromText === linkText) {
-          relevantLinks.push({ targetNote: link.to, targetText: link.toText });
-        }
-        if (link.to.id === note.id && link.toText === linkText) {
-          relevantLinks.push({ targetNote: link.from, targetText: link.fromText });
-        }
-      });
-      
-      if (relevantLinks.length === 0) return;
-      
-      linksPopup = document.createElement('div');
-      linksPopup.className = 'links-popup';
-      linksPopup.style.left = x + 'px';
-      linksPopup.style.top = y + 'px';
-      
-      relevantLinks.forEach(link => {
-        const item = document.createElement('div');
-        item.className = 'links-popup-item';
-        item.innerHTML = `
-          <div class="links-popup-title">${link.targetNote.title || 'Untitled'}</div>
-          <div class="links-popup-text">"${link.targetText}"</div>
-        `;
-        item.onclick = () => {
-          removeLinksPopup();
-          removeNoteEditor();
-          showNoteEditor(link.targetNote, (savedNote) => {}, 'edit', link.targetText);
-        };
-        linksPopup.appendChild(item);
-      });
-      
-      document.body.appendChild(linksPopup);
-    }
-
-    function removeLinksPopup() {
-      if (linksPopup) {
-        linksPopup.remove();
-        linksPopup = null;
-      }
-    }
-
-    async function saveToFirebase() {
-      if (!currentUser) return;
-      
-      const notesData = notes.map(note => ({
-        id: note.id,
-        x: note.x,
-        y: note.y,
-        title: note.title,
-        content: note.content,
-        radius: note.radius
-      }));
-      
-      const linksData = links.map(link => ({
-        fromId: link.from.id,
-        toId: link.to.id,
-        fromText: link.fromText,
-        toText: link.toText
-      }));
-      
-      await db.collection('users').doc(currentUser.uid).collection('graphs').doc('mainGraph').set({
-        notes: notesData,
-        links: linksData,
-        lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-      });
-    }
-
-    async function loadFromFirebase() {
-      if (!currentUser) return;
-      
-      const doc = await db.collection('users').doc(currentUser.uid).collection('graphs').doc('mainGraph').get();
-      
-      if (doc.exists) {
-        const data = doc.data();
-        
-        notes = data.notes.map(noteData => {
-          const note = new Note(noteData.x, noteData.y, noteData.title, noteData.content);
-          note.id = noteData.id;
-          return note;
-        });
-        
-        links = data.links.map(linkData => {
-          const fromNote = notes.find(n => n.id === linkData.fromId);
-          const toNote = notes.find(n => n.id === linkData.toId);
-          if (fromNote && toNote) {
-            return new Link(fromNote, toNote, linkData.fromText, linkData.toText);
-          }
-        }).filter(Boolean);
-      }
-    }
-
-    let saveTimeout;
-    function scheduleSave() {
-      clearTimeout(saveTimeout);
-      saveTimeout = setTimeout(() => {
-        saveToFirebase();
-      }, 3000);
-    }
-
-    function createNote(x, y) {
-      const note = new Note(x, y);
-      notes.push(note);
-      
-      showNoteEditor(note, (savedNote) => {
-        if (!savedNote.title && !savedNote.content) {
-          notes = notes.filter(n => n.id !== note.id);
-        }
-        scheduleSave();
-      });
-    }
-
-    function deleteNote(note) {
-      notes = notes.filter(n => n.id !== note.id);
-      links = links.filter(l => l.from.id !== note.id && l.to.id !== note.id);
-      scheduleSave();
-    }
-
-    function deleteLink(link) {
-      links = links.filter(l => l !== link);
-      scheduleSave();
-    }
-
-    function startLinkCreation(fromNote) {
-      linkMode = { step: 1, fromNote: fromNote, fromText: null };
-      
-      showNoteEditor(fromNote, (selectedText) => {
-        linkMode.fromText = selectedText;
-        linkMode.step = 2;
-        document.getElementById('linkModeOverlay').classList.add('active');
-      }, 'select');
-    }
-
-    function finishLinkCreation(toNote) {
-      if (!linkMode || linkMode.step !== 2) return;
-      
-      document.getElementById('linkModeOverlay').classList.remove('active');
-      
-      showNoteEditor(toNote, (selectedText) => {
-        const link = new Link(linkMode.fromNote, toNote, linkMode.fromText, selectedText);
-        links.push(link);
-        linkMode = null;
-        scheduleSave();
-      }, 'select');
-    }
-
-    // DESKTOP EVENT LISTENERS
-    if (!isMobile) {
-      canvas.addEventListener('mousemove', (e) => {
-        if (!draggingNote && !isDragging) {
-          const link = getLinkAt(e.clientX, e.clientY);
-          if (link !== hoveredLink) {
-            hoveredLink = link;
-            canvas.style.cursor = link ? 'pointer' : 'grab';
-          }
-        }
-        
-        if (draggingNote) {
-          hasDragged = true;
-          const world = screenToWorld(e.clientX, e.clientY);
-          draggingNote.x = world.x;
-          draggingNote.y = world.y;
-        } else if (isDragging) {
-          const dx = e.clientX - dragStart.x;
-          const dy = e.clientY - dragStart.y;
-          camera.x += dx / camera.zoom;
-          camera.y += dy / camera.zoom;
-          dragStart = { x: e.clientX, y: e.clientY };
-        }
-      });
-
-      canvas.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        const link = getLinkAt(e.clientX, e.clientY);
-        if (link) {
-          showContextMenu(e.clientX, e.clientY, null, link);
-          return;
-        }
-        
-        const note = getNoteAt(e.clientX, e.clientY);
-        showContextMenu(e.clientX, e.clientY, note, null);
-      });
-
-      canvas.addEventListener('click', (e) => {
-        removeContextMenu();
-        removeLinksPopup();
-        
-        if (linkMode && linkMode.step === 2) {
-          const note = getNoteAt(e.clientX, e.clientY);
-          if (note && note.id !== linkMode.fromNote.id) {
-            finishLinkCreation(note);
-          }
-        }
-      });
-
-      canvas.addEventListener('mousedown', (e) => {
-        if (e.button === 0 && !linkMode) {
-          const note = getNoteAt(e.clientX, e.clientY);
-          if (note) {
-            draggingNote = note;
-            note.isDragging = true;
-            hasDragged = false;
-            canvas.style.cursor = 'grabbing';
-          } else {
-            isDragging = true;
-            dragStart = { x: e.clientX, y: e.clientY };
-          }
-        }
-      });
-
-      canvas.addEventListener('mouseup', (e) => {
-        if (draggingNote) {
-          draggingNote.isDragging = false;
-          const wasJustClick = !hasDragged;
-          const clickedNote = draggingNote;
-          draggingNote = null;
-          canvas.style.cursor = 'grab';
-          
-          if (wasJustClick && !linkMode) {
-            showNoteEditor(clickedNote, (savedNote) => {});
-          }
-        }
-        isDragging = false;
-      });
-
-      canvas.addEventListener('wheel', (e) => {
-        e.preventDefault();
-        const zoomSpeed = 0.1;
-        const delta = e.deltaY > 0 ? -zoomSpeed : zoomSpeed;
-        camera.zoom = Math.max(0.1, Math.min(3, camera.zoom + delta));
-      });
-    } else {
-      // MOBILE EVENT LISTENERS
-      canvas.addEventListener('touchstart', (e) => {
-        if (e.touches.length === 1) {
-          const touch = e.touches[0];
-          touchStartTime = Date.now();
-          touchStartPos = { x: touch.clientX, y: touch.clientY };
-          
-          // Check for link first
-          touchStartLink = getLinkAt(touch.clientX, touch.clientY);
-          if (touchStartLink) {
-            longPressLinkTimer = setTimeout(() => {
-              if (navigator.vibrate) navigator.vibrate(10);
-              showContextMenu(touch.clientX, touch.clientY, null, touchStartLink);
-            }, LONG_PRESS_DURATION);
-            return;
-          }
-          
-          // Check for note
-          touchStartNote = getNoteAt(touch.clientX, touch.clientY);
-          
-          if (touchStartNote && !linkMode) {
-            isLongPress = false;
-            
-            // Start long-press timer for note dragging
-            longPressTimer = setTimeout(() => {
-              isLongPress = true;
-              touchStartNote.isDragging = true;
-              
-              // Haptic feedback
-              if (navigator.vibrate) {
-                navigator.vibrate(10);
-              }
-              
-              // Show hint
-              const hint = document.getElementById('dragHint');
-              hint.classList.add('show');
-              setTimeout(() => {
-                hint.classList.remove('show');
-              }, 1500);
-              
-              canvas.style.cursor = 'grabbing';
-            }, LONG_PRESS_DURATION);
-          } else if (!touchStartNote && !touchStartLink) {
-            // Long press on empty canvas to drag
-            longPressTimer = setTimeout(() => {
-              isLongPress = true;
-              isDragging = true;
-              dragStart = { x: touch.clientX, y: touch.clientY };
-              
-              if (navigator.vibrate) {
-                navigator.vibrate(10);
-              }
-              
-              canvas.style.cursor = 'grabbing';
-            }, LONG_PRESS_DURATION);
-          }
-        }
-      }, { passive: false });
-
-      canvas.addEventListener('touchmove', (e) => {
-        // Only cancel link timer if we actually moved
-        const touch = e.touches[0];
-        if (touch && touchStartPos) {
-          const dx = touch.clientX - touchStartPos.x;
-          const dy = touch.clientY - touchStartPos.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist > 10) {
-            clearTimeout(longPressLinkTimer);
-          }
-        }
-        
-        if (e.touches.length === 1 && (isLongPress || isDragging)) {
-          e.preventDefault();
-          
-          const touch = e.touches[0];
-          
-          if (touchStartNote && touchStartNote.isDragging) {
-            // Dragging note
-            const world = screenToWorld(touch.clientX, touch.clientY);
-            touchStartNote.x = world.x;
-            touchStartNote.y = world.y;
-            hasDragged = true;
-          } else if (isDragging) {
-            // Panning canvas
-            const dx = touch.clientX - dragStart.x;
-            const dy = touch.clientY - dragStart.y;
-            camera.x += dx / camera.zoom;
-            camera.y += dy / camera.zoom;
-            dragStart = { x: touch.clientX, y: touch.clientY };
-            hasDragged = true;
-          }
-        } else if (e.touches.length === 2) {
-          e.preventDefault();
-          // Could add pinch zoom here
-        }
-      }, { passive: false });
-
-      canvas.addEventListener('touchend', (e) => {
-        clearTimeout(longPressTimer);
-        clearTimeout(longPressLinkTimer);
-        touchStartLink = null;
-        
-        if (touchStartNote) {
-          const currentTime = Date.now();
-          const touchDuration = currentTime - touchStartTime;
-          
-          if (touchStartNote.isDragging) {
-            // End dragging note
-            touchStartNote.isDragging = false;
-            canvas.style.cursor = 'grab';
-            hasDragged = false;
-            touchStartNote = null;
-          } else if (touchDuration < LONG_PRESS_DURATION && !hasDragged) {
-            // Short tap on note
-            const timeSinceLastTap = currentTime - lastTapTime;
-            
-            if (lastTapNote === touchStartNote && timeSinceLastTap < DOUBLE_TAP_DELAY) {
-              // DOUBLE TAP - Open note editor with mobile buttons
-              lastTapNote = null;
-              lastTapTime = 0;
-              removeContextMenu();
-              removeLinksPopup();
-              showNoteEditor(touchStartNote, (savedNote) => {
-                scheduleSave();
-              }, 'edit', null, true);
-            } else {
-              // SINGLE TAP - Open note editor or handle linking
-              if (linkMode && linkMode.step === 2) {
-                // In linking mode - finish the link
-                finishLinkCreation(touchStartNote);
-              } else {
-                // Normal edit mode
-                lastTapNote = touchStartNote;
-                lastTapTime = currentTime;
-                removeContextMenu();
-                removeLinksPopup();
-                showNoteEditor(touchStartNote, (savedNote) => {
-                  scheduleSave();
-                }, 'edit', null, true);
-              }
-            }
-          }
-        } else if (!hasDragged && e.touches.length === 0) {
-          // Tap on empty canvas
-          const currentTime = Date.now();
-          const touchDuration = currentTime - touchStartTime;
-          
-          if (touchDuration < LONG_PRESS_DURATION && !isLongPress) {
-            const timeSinceLastTap = currentTime - lastTapTime;
-            
-            if (lastTapNote === null && timeSinceLastTap < DOUBLE_TAP_DELAY) {
-              // DOUBLE TAP on empty - create new note
-              lastTapTime = 0;
-              const world = screenToWorld(touchStartPos.x, touchStartPos.y);
-              createNote(world.x, world.y);
-            } else {
-              lastTapTime = currentTime;
-              lastTapNote = null;
-            }
-          }
-        }
-        
-        // End canvas dragging
-        if (isDragging) {
-          isDragging = false;
-          canvas.style.cursor = 'grab';
-        }
-        
-        isLongPress = false;
-        hasDragged = false;
-        touchStartNote = null;
-      }, { passive: false });
-
-      canvas.addEventListener('touchcancel', (e) => {
-        clearTimeout(longPressTimer);
-        clearTimeout(longPressLinkTimer);
-        if (touchStartNote) {
-          touchStartNote.isDragging = false;
-          canvas.style.cursor = 'grab';
-        }
-        isDragging = false;
-        isLongPress = false;
-        hasDragged = false;
-        touchStartNote = null;
-        touchStartLink = null;
-      }, { passive: false });
-    }
-
-    document.body.addEventListener('touchmove', (e) => {
-      // Allow touchmove on inputs
-      if (e.target.tagName !== 'INPUT' && e.target.getAttribute('contenteditable') !== 'true') {
-        e.preventDefault();
-      }
-    }, { passive: false });
-
-    window.addEventListener('resize', () => {
-      resizeCanvasForDevice();
-    });
-
-    // Authentication handlers
-    document.getElementById('googleSignInBtn').addEventListener('click', async () => {
-      const provider = new firebase.auth.GoogleAuthProvider();
-      await auth.signInWithPopup(provider);
-    });
-
-    document.getElementById('logoutBtn').addEventListener('click', async () => {
-      await auth.signOut();
-    });
-
-    // Auth state observer
-    auth.onAuthStateChanged(async (user) => {
-      if (user) {
-        currentUser = user;
-        
-        document.getElementById('loginOverlay').style.display = 'none';
-        document.getElementById('userInfo').style.display = 'flex';
-        document.getElementById('userName').textContent = user.displayName;
-        document.getElementById('userAvatar').src = user.photoURL;
-        
-        await loadFromFirebase();
-        
-        if (notes.length === 0) {
-          notes.push(new Note(-200, -100, 'Welcome', 'Right-click (desktop) or double-tap (mobile) to create a new note or add links!'));
-          notes.push(new Note(200, 100, 'Mobile Controls', 'Hold and drag to move notes. Single tap to open. Double tap for menu.'));
-          saveToFirebase();
-        }
-      } else {
-        currentUser = null;
-        notes = [];
-        links = [];
-        
-        document.getElementById('loginOverlay').style.display = 'flex';
-        document.getElementById('userInfo').style.display = 'none';
-      }
-    });
-
-    animate();
-  </script>
-</body>
-</html>
+      // Toolbar formatting
+      noteEditor
