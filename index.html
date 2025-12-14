@@ -305,6 +305,13 @@
       align-items: center;
       gap: 12px;
       transition: box-shadow 0.2s;
+      -webkit-user-select: none;
+      user-select: none;
+      touch-action: manipulation;
+    }
+
+    .google-signin-btn:active {
+      transform: scale(0.98);
     }
 
     .google-signin-btn:hover {
@@ -736,13 +743,4 @@
               span.scrollIntoView({ behavior: 'smooth', block: 'center' });
               span.style.background = 'rgba(124, 58, 237, 0.3)';
               setTimeout(() => {
-                span.style.background = 'rgba(124, 58, 237, 0.1)';
-              }, 1000);
-              break;
-            }
-          }
-        }, 100);
-      }
-
-      // Toolbar formatting
-      noteEditor
+                span.style.background = 'rgba(1
